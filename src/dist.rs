@@ -5,6 +5,7 @@ use crate::{
 use lazy_static::lazy_static;
 use std::{fs, path::PathBuf, process};
 use wasm_bindgen_cli_support::Bindgen;
+use xtask_watch::camino::Utf8PathBuf;
 
 /// A helper to generate the distributed package.
 ///
@@ -109,6 +110,11 @@ pub struct Dist {
     /// Set the command's current directory as the workspace root.
     #[clap(skip = true)]
     pub run_in_workspace: bool,
+    /// Specify a target directory for the build. If set, the `--target-dir`
+    /// will be specified when calling the build command. If not set, use the
+    /// default target-dir used by Cargo.
+    #[clap(long)]
+    pub target_dir: Option<PathBuf>,
     /// Output style for SASS/SCSS
     #[cfg(feature = "sass")]
     #[clap(skip)]
@@ -247,8 +253,17 @@ impl Dist {
             build_command.args(["--example", example]);
         }
 
-        let build_dir = metadata
-            .target_directory
+        let target_directory = match self.target_dir {
+            Some(dir) => {
+                let valid_dir =
+                    Utf8PathBuf::try_from(dir).context("cannot convert target-dir to UTF8 path")?;
+                build_command.args(["--target-dir", valid_dir.as_str()]);
+                valid_dir
+            }
+            None => metadata.target_directory.clone(),
+        };
+
+        let build_dir = target_directory
             .join("wasm32-unknown-unknown")
             .join(if self.release { "release" } else { "debug" });
         let input_path = if let Some(example) = &self.example {
@@ -263,7 +278,7 @@ impl Dist {
         };
 
         if input_path.exists() {
-            log::trace!("Removing existing target directory");
+            log::trace!("Removing existing target directory: {input_path}");
             fs::remove_file(&input_path).context("cannot remove existing target")?;
         }
 
@@ -295,7 +310,7 @@ impl Dist {
         let wasm_bin_path = dist_dir_path.join(&app_name).with_extension("wasm");
 
         if dist_dir_path.exists() {
-            log::trace!("Removing already existing dist directory");
+            log::trace!("Removing already existing dist directory:: {dist_dir_path:?}");
             fs::remove_dir_all(&dist_dir_path)?;
         }
 
@@ -357,6 +372,7 @@ impl Default for Dist {
             static_dir_path: Default::default(),
             app_name: Default::default(),
             run_in_workspace: Default::default(),
+            target_dir: Default::default(),
             #[cfg(feature = "sass")]
             sass_options: Default::default(),
         }
